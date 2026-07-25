@@ -90,7 +90,7 @@ export const handleMultimodalChat = async (req, res) => {
 
   try {
     const { chatId: inputChatId, messageText } = req.body;
-    const userId = req.auth?.userId || null;
+    const userId = req.userId || null;
     const files = req.files || [];
 
     // --- STEP 1: INPUT VALIDATION & GUARDRAILS ---
