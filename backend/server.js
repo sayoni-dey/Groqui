@@ -33,14 +33,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'active' });
 });
 
-// Protected Route Example (Only accessible if logged in via Next.js)
-app.get('/api/user/chats', requireAuth, async (req, res) => {
-  res.json({
-    message: 'Secure data accessed successfully!',
-    authenticatedClerkId: req.userId // Automatically fetched from token validation
-  });
-});
-
 app.listen(PORT, () => {
   console.log(`Backend server online on port ${PORT}`);
 });
