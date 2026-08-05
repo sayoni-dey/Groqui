@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 connectDB();
 
 // Global Middleware Configuration
-app.use(cors({ origin: 'http://localhost:3000', credentials: true })); 
+app.use(cors({ origin: 'https://open-chat-phi-seven.vercel.app/', credentials: true })); 
 app.use('/api/webhooks', webhookRoutes);
 app.use(express.json());
 // Global Clerk Interceptor (Exposes authorization states across all endpoints)
