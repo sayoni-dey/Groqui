@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 connectDB();
 
 // Global Middleware Configuration
-app.use(cors({ origin: 'https://groqui-phi-seven.vercel.app/', credentials: true })); 
+app.use(cors({ origin: 'https://groqui-rust.vercel.app/', credentials: true })); 
 app.use('/api/webhooks', webhookRoutes);
 app.use(express.json());
 // Global Clerk Interceptor (Exposes authorization states across all endpoints)
