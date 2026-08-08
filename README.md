@@ -6,7 +6,7 @@
 
 ## 📖 Overview
 
-OpenChat is a full-stack AI chat application that replicates the core experience of modern conversational AI platforms while introducing several production-level backend concepts.
+Groqui is a full-stack AI chat application that replicates the core experience of modern conversational AI platforms while introducing several production-level backend concepts.
 
 The project focuses on building a scalable architecture rather than just connecting an LLM API. It demonstrates:
 
