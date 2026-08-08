@@ -15,8 +15,24 @@ const PORT = process.env.PORT || 5000;
 // Connect to MongoDB Atlas
 connectDB();
 
-// Global Middleware Configuration
-app.use(cors({ origin: 'https://groqui-rust.vercel.app/', credentials: true })); 
+// // Global Middleware Configuration
+// app.use(cors({ origin: 'https://groqui-rust.vercel.app' || 'http://localhost:3000' , credentials: true }));
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://groqui-rust.vercel.app"
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
+}));
+ 
 app.use('/api/webhooks', webhookRoutes);
 app.use(express.json());
 // Global Clerk Interceptor (Exposes authorization states across all endpoints)
