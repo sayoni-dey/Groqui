@@ -30,9 +30,8 @@ const QWEN_VISION_LIMITS = {
 
 // Hybrid execution route (Handles rate limits for guests and streaming logs for accounts)
 router.post('/prompt',
-  // optionalAuth,
-  // anonymousRateLimiter,
-  requireAuth,
+  optionalAuth,
+  anonymousRateLimiter,
   groqModelRateLimiter(LLAMA_INSTANT_LIMITS), 
   handleChatStream);
 
