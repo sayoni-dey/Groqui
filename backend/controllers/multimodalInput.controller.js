@@ -7,7 +7,7 @@ import { v2 as cloudinary } from "cloudinary";
 import Chat from "../models/chat.model.js";
 import {redis} from "../config/redis.js";
 
- /**
+/**
  * Utility: Sends SSE errors safely based on whether headers have already been sent.
  */
 const sendError = (res, statusCode, message) => {
@@ -80,13 +80,14 @@ const sendSSEError = (res, errorMessage, statusCode = 500) => {
 export const handleMultimodalChat = async (req, res) => {
   const abortController = new AbortController();
 
-  // Abort ongoing Groq generation on client disconnection
-  req.on("close", () => {
-    if (!res.writableEnded) {
-      abortController.abort();
-      console.log("Client disconnected from multimodal stream.");
-    }
-  });
+  // // Abort ongoing Groq generation on client disconnection
+  // req.on("close", () => {
+  //   if (!res.writableEnded) {
+  //     abortController.abort();
+  //     console.log("Client disconnected from multimodal stream.");
+  //   }
+  // });
+  let streamCompleted = false;
 
   try {
     const { chatId: inputChatId, messageText } = req.body;
@@ -117,8 +118,22 @@ export const handleMultimodalChat = async (req, res) => {
       }
     }
 
-    // --- STEP 2: CLOUD STORAGE UPLOAD ---
-    // Upload files to Cloudinary and return secure hosted URLs
+    // --- STEP 2: FLUSH SSE HEADERS IMMEDIATELY (Prevents network timeout) ---
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+    // --------------------------------
+    // Handle actual SSE client disconnect
+    // --------------------------------
+    res.on("close", () => {
+      if (!streamCompleted && !res.writableEnded) {
+        console.log("Client disconnected from multimodal stream.");
+
+        abortController.abort();
+      }
+    });
+    // --- STEP 3: CLOUD STORAGE UPLOAD ---
     const uploadedAttachments = await Promise.all(
       files.map(async (file) => {
         const secureUrl = await uploadToCloudinary(file.buffer, file.mimetype);
@@ -132,7 +147,7 @@ export const handleMultimodalChat = async (req, res) => {
       })
     );
 
-    // --- STEP 3: ENSURE / CREATE CHAT SESSION ---
+    // --- STEP 4: ENSURE / CREATE CHAT SESSION ---
     let activeChatId = inputChatId;
     if (!activeChatId) {
       const newChat = await Chat.create({
@@ -142,7 +157,7 @@ export const handleMultimodalChat = async (req, res) => {
       activeChatId = newChat._id;
     }
 
-    // --- STEP 4: PERSIST USER MESSAGE FIRST (SINGLE SOURCE OF TRUTH) ---
+    // --- STEP 5: PERSIST USER MESSAGE FIRST ---
     await Message.create({
       chatId: activeChatId,
       sender: "user",
@@ -150,59 +165,47 @@ export const handleMultimodalChat = async (req, res) => {
       attachments: uploadedAttachments,
     });
 
-  // --- STEP 5: REBUILD SLIDING CONVERSATION HISTORY FROM MONGO DB ---
-  // Fetch only the most recent N messages in reverse-chronological order, then reverse back
-  const recentDbMessages = await Message.find({ chatId: activeChatId })
-    .sort({ createdAt: -1 })
-    .limit(MAX_CONTEXT_MESSAGES)
-    .lean();
+    // --- STEP 6: REBUILD SLIDING CONVERSATION HISTORY FROM MONGO DB ---
+    const recentDbMessages = await Message.find({ chatId: activeChatId })
+      .sort({ createdAt: -1 })
+      .limit(MAX_CONTEXT_MESSAGES)
+      .lean();
 
-  // Reverse array so messages are in chronological order (Oldest -> Newest) for the LLM payload
-  const dbMessages = recentDbMessages.reverse();
+    const dbMessages = recentDbMessages.reverse();
 
-  // Construct LLM payload mapping MongoDB fields (sender -> role, text -> content)
-  const llmPayloadMessages = dbMessages.map((msg) => {
-    // Map database sender ("user" or "assistant") to LLM role
-    const role = msg.sender || "user";
-    const textContent = msg.text || "";
+    const llmPayloadMessages = dbMessages.map((msg) => {
+      const role = msg.sender || "user";
+      const textContent = msg.text || "";
 
-    if (role === "user" && msg.attachments && msg.attachments.length > 0) {
-      const contentArray = [];
+      if (role === "user" && msg.attachments && msg.attachments.length > 0) {
+        const contentArray = [];
 
-      if (textContent) {
-        contentArray.push({ type: "text", text: textContent });
-      }
-
-      msg.attachments.forEach((att) => {
-        if (att.type === "image" && att.url) {
-          contentArray.push({
-            type: "image_url",
-            image_url: { url: att.url },
-          });
+        if (textContent) {
+          contentArray.push({ type: "text", text: textContent });
         }
-      });
+
+        msg.attachments.forEach((att) => {
+          if (att.type === "image" && att.url) {
+            contentArray.push({
+              type: "image_url",
+              image_url: { url: att.url },
+            });
+          }
+        });
+
+        return {
+          role: role,
+          content: contentArray,
+        };
+      }
 
       return {
         role: role,
-        content: contentArray,
+        content: textContent,
       };
-    }
+    });
 
-    return {
-      role: role,
-      content: textContent,
-    };
-  });
-
-  console.log(JSON.stringify(dbMessages, null, 2));
-
-    // --- STEP 6: INITIALIZE SSE CONNECTION ---
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders?.();
-
-    // --- STEP 7: EXECUTE GROQ LLM STREAMING REQUEST ---
+    // --- STEP 7: EXECUTE GROQ VISION LLM STREAMING REQUEST ---
     const stream = await groq.chat.completions.create(
       {
         model: "qwen/qwen3.6-27b",
@@ -250,12 +253,36 @@ export const handleMultimodalChat = async (req, res) => {
     res.write(`data: [DONE]\n\n`);
     res.end();
   } catch (error) {
-    if (error.name === "AbortError") {
-      console.log("Groq request aborted cleanly upon client disconnection.");
+    // // Handle both Standard AbortError and Groq SDK APIUserAbortError
+    // if (error.name === "AbortError" || error.name === "APIUserAbortError") {
+    //   console.log("Groq request aborted cleanly upon client disconnection.");
+    //   return;
+    // }
+    // console.error("Multimodal Stream Controller Error:", error);
+    // return sendSSEError(res, error.message || "An unexpected error occurred during processing.");
+    // --------------------------------
+    // Client cancellation
+    // --------------------------------
+    if (abortController.signal.aborted) {
+      console.log(
+        "Multimodal Groq generation cancelled by client."
+      );
       return;
     }
-    console.error("Multimodal Stream Controller Error:", error);
-    return sendSSEError(res, error.message || "An unexpected error occurred during processing.");
+
+    // --------------------------------
+    // Actual server/Groq error
+    // --------------------------------
+    console.error(
+      "Multimodal Stream Controller Error:",
+      error
+    );
+
+    return sendSSEError(
+      res,
+      error.message ||
+        "An unexpected error occurred during processing."
+    );
   }
 };
 

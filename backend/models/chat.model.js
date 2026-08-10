@@ -8,7 +8,7 @@ const ChatSchema = new mongoose.Schema({
   },
   userId: {
     type: String, // References the clerkId from the User model
-    required: true,
+    required: false,
     index: true,  // Indexed for fast lookups when loading a user's chat history sidebar
   },
   createdAt: {

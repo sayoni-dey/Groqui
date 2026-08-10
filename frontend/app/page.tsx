@@ -47,7 +47,8 @@ export default function Home() {
   // DOM References and Native Network Controllers
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const backendUrl: string = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+  // const backendUrl: string = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+  const backendUrl: string = 'http://localhost:5000';
   // 1. Core History Fetch Hook
   const fetchChatHistory = async (): Promise<void> => {
     if (!userId) return;
